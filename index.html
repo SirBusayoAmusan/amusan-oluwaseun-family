@@ -669,14 +669,19 @@ function getCurrentMonth(){ return new Date().toISOString().slice(0,7); }
 // FIREBASE INIT
 // ============================================================
 // ── FIREBASE REST API (no external scripts needed) ──────────────────────────
-const FB_BASE = `https://firestore.googleapis.com/v1/projects/${FB_CONFIG.projectId}/databases/(default)/documents/${COLLECTION}/data`;
-const FB_KEY  = FB_CONFIG.apiKey;
+const FB_PROJECT = FB_CONFIG.projectId;
+const FB_KEY     = FB_CONFIG.apiKey;
+// Base for subcollections under family_os/data/{col}/{docId}
+const FB_ROOT = `https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents`;
 let pollTimer = null;
+
+function colUrl(col){ return `${FB_ROOT}/${COLLECTION}/data/${col}`; }
+function docUrl(col,id){ return `${FB_ROOT}/${COLLECTION}/data/${col}/${id}`; }
+function settingsUrl(){ return `${FB_ROOT}/${COLLECTION}/data/settings/main`; }
 
 async function initFirebase(){
   try {
-    // Test connection with a simple read
-    const res = await fetch(`${FB_BASE}/settings/main?key=${FB_KEY}`);
+    const res = await fetch(`${settingsUrl()}?key=${FB_KEY}`);
     if(res.ok){
       const doc = await res.json();
       if(doc.fields) applySettings(firestoreToObj(doc.fields));
@@ -693,83 +698,84 @@ async function initFirebase(){
 function startPolling(){
   if(pollTimer) clearInterval(pollTimer);
   pollFB();
-  pollTimer = setInterval(pollFB, 8000); // poll every 8s for real-time feel
+  pollTimer = setInterval(pollFB, 8000);
 }
 
 async function pollFB(){
   const cols = ['income','expenses','baby','investments','trash','savings_log'];
   for(const c of cols){
     try {
-      const res = await fetch(`${FB_BASE}/${c}?key=${FB_KEY}&pageSize=200`);
+      const res = await fetch(`${colUrl(c)}?key=${FB_KEY}&pageSize=200`);
       if(!res.ok) continue;
       const data = await res.json();
-      const docs = (data.documents||[]).map(d => {
-        const id = d.name.split('/').pop();
-        return {id, ...firestoreToObj(d.fields||{})};
-      });
+      const docs = (data.documents||[]).map(d=>({
+        id: d.name.split('/').pop(),
+        ...firestoreToObj(d.fields||{})
+      }));
       state[c] = docs;
-    } catch(e){}
+    } catch(e){ console.warn('poll error',c,e); }
   }
-  // Also pull settings
   try {
-    const res = await fetch(`${FB_BASE}/settings/main?key=${FB_KEY}`);
+    const res = await fetch(`${settingsUrl()}?key=${FB_KEY}`);
     if(res.ok){ const doc=await res.json(); if(doc.fields) applySettings(firestoreToObj(doc.fields)); }
   } catch(e){}
   renderAll();
   cleanTrash();
 }
 
-// Convert JS object → Firestore REST format
+// JS → Firestore REST fields
 function objToFirestore(obj){
-  const fields = {};
+  const fields={};
   for(const [k,v] of Object.entries(obj)){
-    if(v===null||v===undefined) continue;
-    if(typeof v==='string') fields[k]={stringValue:v};
-    else if(typeof v==='number') fields[k]={doubleValue:v};
+    if(v===undefined) continue;
+    if(v===null)             fields[k]={nullValue:null};
+    else if(typeof v==='string')  fields[k]={stringValue:v};
+    else if(typeof v==='number')  fields[k]={doubleValue:v};
     else if(typeof v==='boolean') fields[k]={booleanValue:v};
-    else if(typeof v==='object') fields[k]={stringValue:JSON.stringify(v)};
+    else if(Array.isArray(v)||typeof v==='object') fields[k]={stringValue:JSON.stringify(v)};
   }
   return {fields};
 }
 
-// Convert Firestore REST format → JS object
+// Firestore REST fields → JS
 function firestoreToObj(fields){
   const obj={};
   for(const [k,v] of Object.entries(fields)){
-    if(v.stringValue!==undefined){
-      // Try parse JSON for objects stored as string
+    if('stringValue' in v){
       try{ obj[k]=JSON.parse(v.stringValue); }catch(e){ obj[k]=v.stringValue; }
-    } else if(v.doubleValue!==undefined) obj[k]=v.doubleValue;
-    else if(v.integerValue!==undefined) obj[k]=parseInt(v.integerValue);
-    else if(v.booleanValue!==undefined) obj[k]=v.booleanValue;
+    } else if('doubleValue' in v)  obj[k]=Number(v.doubleValue);
+    else if('integerValue' in v)   obj[k]=parseInt(v.integerValue);
+    else if('booleanValue' in v)   obj[k]=v.booleanValue;
+    else if('nullValue' in v)      obj[k]=null;
   }
   return obj;
 }
 
 async function fbSet(col, id, data){
   try {
-    const url = `${FB_BASE}/${col}/${id}?key=${FB_KEY}&updateMask.fieldPaths=${Object.keys(data).join('&updateMask.fieldPaths=')}`;
-    await fetch(`${FB_BASE}/${col}/${id}?key=${FB_KEY}`, {
-      method:'PATCH', headers:{'Content-Type':'application/json'},
+    await fetch(`${docUrl(col,id)}?key=${FB_KEY}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
       body: JSON.stringify(objToFirestore(data))
     });
-  } catch(e){ console.error('fbSet:',e); }
+  } catch(e){ console.error('fbSet error:',col,id,e); }
   saveLocal();
 }
 
 async function fbDel(col, id){
   try {
-    await fetch(`${FB_BASE}/${col}/${id}?key=${FB_KEY}`, {method:'DELETE'});
-  } catch(e){ console.error('fbDel:',e); }
+    await fetch(`${docUrl(col,id)}?key=${FB_KEY}`, {method:'DELETE'});
+  } catch(e){ console.error('fbDel error:',e); }
 }
 
 async function fbSetSettings(data){
   try {
-    await fetch(`${FB_BASE}/settings/main?key=${FB_KEY}`, {
-      method:'PATCH', headers:{'Content-Type':'application/json'},
+    await fetch(`${settingsUrl()}?key=${FB_KEY}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
       body: JSON.stringify(objToFirestore(data))
     });
-  } catch(e){ console.error('fbSetSettings:',e); }
+  } catch(e){ console.error('fbSetSettings error:',e); }
   saveLocal();
 }
 
