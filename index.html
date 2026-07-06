@@ -181,6 +181,27 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 </head>
 <body>
 <div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div>
+<!-- PASSWORD GATE -->
+<div id="app-gate" style="display:none;position:fixed;inset:0;z-index:9999;background:linear-gradient(135deg,#0F0A1E,#1E1B4B,#2D1B69);flex-direction:column;align-items:center;justify-content:center;padding:32px">
+  <div style="text-align:center;margin-bottom:32px">
+    <div style="font-size:48px;margin-bottom:12px">💜</div>
+    <div style="font-family:'Playfair Display',serif;font-size:26px;font-weight:700;background:linear-gradient(90deg,#C4B5FD,#fff);-webkit-background-clip:text;-webkit-text-fill-color:transparent">Olori & Otunba</div>
+    <div style="font-family:'Playfair Display',serif;font-size:18px;color:#C4B5FD;margin-top:4px">Family OS</div>
+    <div style="font-size:13px;color:#C4B5FD;opacity:.7;margin-top:8px">Enter your family password to continue</div>
+  </div>
+  <div style="width:100%;max-width:320px">
+    <input id="gate-input" type="password" placeholder="Family password..."
+      style="width:100%;background:rgba(255,255,255,.08);border:1px solid rgba(196,181,253,.3);border-radius:14px;padding:16px 20px;color:#fff;font-size:16px;font-family:Inter,sans-serif;outline:none;text-align:center;letter-spacing:3px;margin-bottom:12px"
+      onkeydown="if(event.key==='Enter') submitPassword()">
+    <div id="gate-error" style="color:#F43F5E;font-size:12px;text-align:center;margin-bottom:12px;min-height:16px"></div>
+    <button onclick="submitPassword()"
+      style="width:100%;background:linear-gradient(135deg,#6B21A8,#A855F7);border:none;border-radius:14px;padding:16px;color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:Inter,sans-serif;box-shadow:0 4px 20px rgba(107,33,168,.5)">
+      Enter Family OS 👑
+    </button>
+  </div>
+  <div style="margin-top:24px;font-size:11px;color:#C4B5FD;opacity:.5;text-align:center">Only Otunba & Olori can access this</div>
+</div>
+
 <div class="aw">
 
 <!-- HERO -->
@@ -492,11 +513,19 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
   </div>
   <div class="card">
     <div class="ctitle">☁️ Firebase Status</div>
-    <div style="display:flex;align-items:center;gap:8px;font-size:13px"><span class="sdot sdot-live"></span><span id="fb-status">Connecting...</span></div>
+    <div style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px"><span class="sdot sdot-live"></span><span id="fb-status">Connecting...</span></div>
+    <div style="background:rgba(168,85,247,.1);border:1px solid rgba(168,85,247,.2);border-radius:10px;padding:10px;font-size:11px;color:var(--lilac);line-height:1.6">
+      ⚠️ Make sure your Firestore rules are set to:<br>
+      <code style="color:var(--gold);font-size:10px">allow read, write: if true;</code><br>
+      The app password protects access at the app level.
+    </div>
   </div>
   <div class="card">
     <div class="ctitle">📊 Google Sheets Sync</div>
     <div style="font-size:12px;color:var(--lilac);margin-bottom:10px;line-height:1.6">Sheets URL is pre-configured. Tap Sync anytime from the bottom bar.</div>
+    <div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.2);border-radius:10px;padding:10px;font-size:11px;color:var(--gold);line-height:1.6;margin-top:8px">
+      🔒 App password: <strong>Bethel2024</strong><br>Share only with Olori. Sessions stay logged in until browser is closed.
+    </div>
     <button class="btn bsu bsm bfl" onclick="syncSheets()">🧪 Test Sheets Sync</button>
   </div>
   <div class="card">
@@ -666,53 +695,49 @@ let state = {
 function getCurrentMonth(){ return new Date().toISOString().slice(0,7); }
 
 // ============================================================
-// FIREBASE INIT — Anonymous Auth + REST API
+// FIREBASE INIT — Password gate + REST API (no auth needed)
 // ============================================================
 const FB_PROJECT = FB_CONFIG.projectId;
 const FB_KEY     = FB_CONFIG.apiKey;
 const FB_ROOT    = `https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents`;
-const FB_AUTH    = `https://identitytoolkit.googleapis.com/v1/accounts:signInAnonymously?key=${FB_KEY}`;
+const APP_PASS   = 'Bethel2024';
 let pollTimer    = null;
-let fbIdToken    = null;  // Auth token for all requests
 
 function colUrl(col)   { return `${FB_ROOT}/${COLLECTION}/data/${col}`; }
 function docUrl(col,id){ return `${FB_ROOT}/${COLLECTION}/data/${col}/${id}`; }
 function settingsUrl() { return `${FB_ROOT}/${COLLECTION}/data/settings/main`; }
+function fbHeaders()   { return {'Content-Type':'application/json'}; }
 
-// Build headers — include auth token when available
-function fbHeaders(){
-  const h = { 'Content-Type':'application/json' };
-  if(fbIdToken) h['Authorization'] = `Bearer ${fbIdToken}`;
-  return h;
+// ── PASSWORD GATE ────────────────────────────────────────────
+function checkPassword(){ return sessionStorage.getItem('amusan_auth') === APP_PASS; }
+
+function showPasswordGate(){
+  document.getElementById('app-gate').style.display = 'flex';
+  document.getElementById('aw').style.display = 'none';
+  document.querySelector('.sbar').style.display = 'none';
 }
 
-// Sign in anonymously, get ID token
-async function signInAnonymously(){
-  try {
-    const res = await fetch(FB_AUTH, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({returnSecureToken:true})
-    });
-    if(!res.ok) throw new Error('Auth failed: '+res.status);
-    const data = await res.json();
-    fbIdToken = data.idToken;
-    // Refresh token every 55 minutes (tokens expire at 60)
-    setTimeout(signInAnonymously, 55*60*1000);
-    return true;
-  } catch(e){
-    console.error('Anonymous sign-in error:', e);
-    return false;
+function hidePasswordGate(){
+  document.getElementById('app-gate').style.display = 'none';
+  document.getElementById('aw').style.display = 'block';
+  document.querySelector('.sbar').style.display = 'flex';
+}
+
+function submitPassword(){
+  const val = document.getElementById('gate-input').value.trim();
+  if(val === APP_PASS){
+    sessionStorage.setItem('amusan_auth', APP_PASS);
+    hidePasswordGate();
+    initFirebase();
+  } else {
+    document.getElementById('gate-error').textContent = 'Wrong password. Try again.';
+    document.getElementById('gate-input').value = '';
   }
 }
 
 async function initFirebase(){
   try {
     document.getElementById('fb-status').textContent = 'Connecting...';
-    // Step 1: sign in anonymously
-    const authed = await signInAnonymously();
-    if(!authed) throw new Error('Could not authenticate');
-    // Step 2: load settings
     const res = await fetch(`${settingsUrl()}?key=${FB_KEY}`, { headers: fbHeaders() });
     if(res.ok){
       const doc = await res.json();
@@ -736,7 +761,6 @@ function startPolling(){
 }
 
 async function pollFB(){
-  if(!fbIdToken) return; // not authenticated yet
   const cols = ['income','expenses','baby','investments','trash','savings_log'];
   for(const c of cols){
     try {
@@ -1651,7 +1675,13 @@ function setDefaults(){
 loadLocal();
 setDefaults();
 renderAll();
-initFirebase();
+// Show password gate first — init Firebase only after correct password
+if(checkPassword()){
+  hidePasswordGate();
+  initFirebase();
+} else {
+  showPasswordGate();
+}
 </script>
 </body>
 </html>
