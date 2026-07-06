@@ -703,9 +703,9 @@ const FB_ROOT    = `https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/d
 const APP_PASS   = 'Bethel2024';
 let pollTimer    = null;
 
-function colUrl(col)   { return `${FB_ROOT}/${COLLECTION}/data/${col}`; }
-function docUrl(col,id){ return `${FB_ROOT}/${COLLECTION}/data/${col}/${id}`; }
-function settingsUrl() { return `${FB_ROOT}/${COLLECTION}/data/settings/main`; }
+function colUrl(col)   { return `${FB_ROOT}/fo_${col}`; }
+function docUrl(col,id){ return `${FB_ROOT}/fo_${col}/${id}`; }
+function settingsUrl() { return `${FB_ROOT}/fo_settings/main`; }
 function fbHeaders()   { return {'Content-Type':'application/json'}; }
 
 // ── PASSWORD GATE ────────────────────────────────────────────
@@ -736,19 +736,25 @@ function submitPassword(){
 }
 
 async function initFirebase(){
+  document.getElementById('fb-status').textContent = 'Connecting...';
   try {
-    document.getElementById('fb-status').textContent = 'Connecting...';
+    // Test connection — 200 or 404 both mean Firebase is reachable
     const res = await fetch(`${settingsUrl()}?key=${FB_KEY}`, { headers: fbHeaders() });
-    if(res.ok){
+    if(res.status === 200){
       const doc = await res.json();
       if(doc.fields) applySettings(firestoreToObj(doc.fields));
     }
-    document.getElementById('fb-status').textContent = 'Connected to Firebase ✅';
-    toast('🔥 Live sync active');
-    startPolling();
+    // 404 just means no settings saved yet — that is fine
+    if(res.status === 200 || res.status === 404){
+      document.getElementById('fb-status').textContent = 'Connected to Firebase ✅';
+      toast('🔥 Live sync active');
+      startPolling();
+    } else {
+      throw new Error('HTTP '+res.status);
+    }
   } catch(e){
     console.error('Firebase init error:', e);
-    document.getElementById('fb-status').textContent = 'Offline — using local storage';
+    document.getElementById('fb-status').textContent = 'Offline — local only';
     loadLocal();
     renderAll();
   }
@@ -765,18 +771,19 @@ async function pollFB(){
   for(const c of cols){
     try {
       const res = await fetch(`${colUrl(c)}?key=${FB_KEY}&pageSize=200`, { headers: fbHeaders() });
-      if(!res.ok) continue;
-      const data = await res.json();
-      const docs = (data.documents||[]).map(d=>({
-        id: d.name.split('/').pop(),
-        ...firestoreToObj(d.fields||{})
-      }));
-      state[c] = docs;
+      if(res.status === 200){
+        const data = await res.json();
+        state[c] = (data.documents||[]).map(d=>({
+          id: d.name.split('/').pop(),
+          ...firestoreToObj(d.fields||{})
+        }));
+      }
+      // 404 = empty collection, leave state as is
     } catch(e){ console.warn('poll error',c,e); }
   }
   try {
     const res = await fetch(`${settingsUrl()}?key=${FB_KEY}`, { headers: fbHeaders() });
-    if(res.ok){ const doc=await res.json(); if(doc.fields) applySettings(firestoreToObj(doc.fields)); }
+    if(res.status === 200){ const doc=await res.json(); if(doc.fields) applySettings(firestoreToObj(doc.fields)); }
   } catch(e){}
   renderAll();
   cleanTrash();
