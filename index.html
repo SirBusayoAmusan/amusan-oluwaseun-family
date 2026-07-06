@@ -626,12 +626,12 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 // FIREBASE CONFIG
 // ============================================================
 const FB_CONFIG = {
-  apiKey:"AIzaSyD_0WnGjD1YKlrT86RXL79OvqfIoAm3ccc",
-  authDomain:"yalo-crm.firebaseapp.com",
-  projectId:"yalo-crm",
-  storageBucket:"yalo-crm.firebasestorage.app",
-  messagingSenderId:"1003166589543",
-  appId:"1:1003166589543:web:c2e22341675f1cf053eac2"
+  apiKey:"AIzaSyArPrUJa1yROlEcktYuxmgP0f1NUMqIMm0",
+  authDomain:"amusan-family-os.firebaseapp.com",
+  projectId:"amusan-family-os",
+  storageBucket:"amusan-family-os.firebasestorage.app",
+  messagingSenderId:"1072890773718",
+  appId:"1:1072890773718:web:1cdf9ba3dab57a06790977"
 };
 const SHEETS_URL = "https://script.google.com/macros/s/AKfycbw05d00h_IKi4ITDlbqtVv7fTRoV_wUgGDUTq9z94y7qRGSFN1Sg1jcGuli2YanuVR8yw/exec";
 const COLLECTION = "family_os";
@@ -666,22 +666,54 @@ let state = {
 function getCurrentMonth(){ return new Date().toISOString().slice(0,7); }
 
 // ============================================================
-// FIREBASE INIT
+// FIREBASE INIT — Anonymous Auth + REST API
 // ============================================================
-// ── FIREBASE REST API (no external scripts needed) ──────────────────────────
 const FB_PROJECT = FB_CONFIG.projectId;
 const FB_KEY     = FB_CONFIG.apiKey;
-// Base for subcollections under family_os/data/{col}/{docId}
-const FB_ROOT = `https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents`;
-let pollTimer = null;
+const FB_ROOT    = `https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents`;
+const FB_AUTH    = `https://identitytoolkit.googleapis.com/v1/accounts:signInAnonymously?key=${FB_KEY}`;
+let pollTimer    = null;
+let fbIdToken    = null;  // Auth token for all requests
 
-function colUrl(col){ return `${FB_ROOT}/${COLLECTION}/data/${col}`; }
+function colUrl(col)   { return `${FB_ROOT}/${COLLECTION}/data/${col}`; }
 function docUrl(col,id){ return `${FB_ROOT}/${COLLECTION}/data/${col}/${id}`; }
-function settingsUrl(){ return `${FB_ROOT}/${COLLECTION}/data/settings/main`; }
+function settingsUrl() { return `${FB_ROOT}/${COLLECTION}/data/settings/main`; }
+
+// Build headers — include auth token when available
+function fbHeaders(){
+  const h = { 'Content-Type':'application/json' };
+  if(fbIdToken) h['Authorization'] = `Bearer ${fbIdToken}`;
+  return h;
+}
+
+// Sign in anonymously, get ID token
+async function signInAnonymously(){
+  try {
+    const res = await fetch(FB_AUTH, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({returnSecureToken:true})
+    });
+    if(!res.ok) throw new Error('Auth failed: '+res.status);
+    const data = await res.json();
+    fbIdToken = data.idToken;
+    // Refresh token every 55 minutes (tokens expire at 60)
+    setTimeout(signInAnonymously, 55*60*1000);
+    return true;
+  } catch(e){
+    console.error('Anonymous sign-in error:', e);
+    return false;
+  }
+}
 
 async function initFirebase(){
   try {
-    const res = await fetch(`${settingsUrl()}?key=${FB_KEY}`);
+    document.getElementById('fb-status').textContent = 'Connecting...';
+    // Step 1: sign in anonymously
+    const authed = await signInAnonymously();
+    if(!authed) throw new Error('Could not authenticate');
+    // Step 2: load settings
+    const res = await fetch(`${settingsUrl()}?key=${FB_KEY}`, { headers: fbHeaders() });
     if(res.ok){
       const doc = await res.json();
       if(doc.fields) applySettings(firestoreToObj(doc.fields));
@@ -691,7 +723,9 @@ async function initFirebase(){
     startPolling();
   } catch(e){
     console.error('Firebase init error:', e);
-    document.getElementById('fb-status').textContent = 'Offline — local storage only';
+    document.getElementById('fb-status').textContent = 'Offline — using local storage';
+    loadLocal();
+    renderAll();
   }
 }
 
@@ -702,10 +736,11 @@ function startPolling(){
 }
 
 async function pollFB(){
+  if(!fbIdToken) return; // not authenticated yet
   const cols = ['income','expenses','baby','investments','trash','savings_log'];
   for(const c of cols){
     try {
-      const res = await fetch(`${colUrl(c)}?key=${FB_KEY}&pageSize=200`);
+      const res = await fetch(`${colUrl(c)}?key=${FB_KEY}&pageSize=200`, { headers: fbHeaders() });
       if(!res.ok) continue;
       const data = await res.json();
       const docs = (data.documents||[]).map(d=>({
@@ -716,7 +751,7 @@ async function pollFB(){
     } catch(e){ console.warn('poll error',c,e); }
   }
   try {
-    const res = await fetch(`${settingsUrl()}?key=${FB_KEY}`);
+    const res = await fetch(`${settingsUrl()}?key=${FB_KEY}`, { headers: fbHeaders() });
     if(res.ok){ const doc=await res.json(); if(doc.fields) applySettings(firestoreToObj(doc.fields)); }
   } catch(e){}
   renderAll();
@@ -755,7 +790,7 @@ async function fbSet(col, id, data){
   try {
     await fetch(`${docUrl(col,id)}?key=${FB_KEY}`, {
       method:'PATCH',
-      headers:{'Content-Type':'application/json'},
+      headers: fbHeaders(),
       body: JSON.stringify(objToFirestore(data))
     });
   } catch(e){ console.error('fbSet error:',col,id,e); }
@@ -764,7 +799,10 @@ async function fbSet(col, id, data){
 
 async function fbDel(col, id){
   try {
-    await fetch(`${docUrl(col,id)}?key=${FB_KEY}`, {method:'DELETE'});
+    await fetch(`${docUrl(col,id)}?key=${FB_KEY}`, {
+      method:'DELETE',
+      headers: fbHeaders()
+    });
   } catch(e){ console.error('fbDel error:',e); }
 }
 
@@ -772,7 +810,7 @@ async function fbSetSettings(data){
   try {
     await fetch(`${settingsUrl()}?key=${FB_KEY}`, {
       method:'PATCH',
-      headers:{'Content-Type':'application/json'},
+      headers: fbHeaders(),
       body: JSON.stringify(objToFirestore(data))
     });
   } catch(e){ console.error('fbSetSettings error:',e); }
