@@ -549,7 +549,7 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 </div><!-- .aw -->
 
 <!-- SYNC BAR -->
-<div class="sbar">
+<div class="sbar" id="main-sbar">
   <button class="sbtn sbm" onclick="syncSheets()">☁️ Sync to Sheets</button>
   <button class="sbtn sbs" onclick="openM('m-expense')">+ Expense</button>
 </div>
@@ -655,12 +655,12 @@ body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellips
 // FIREBASE CONFIG
 // ============================================================
 const FB_CONFIG = {
-  apiKey:"AIzaSyArPrUJa1yROlEcktYuxmgP0f1NUMqIMm0",
-  authDomain:"amusan-family-os.firebaseapp.com",
-  projectId:"amusan-family-os",
-  storageBucket:"amusan-family-os.firebasestorage.app",
-  messagingSenderId:"1072890773718",
-  appId:"1:1072890773718:web:1cdf9ba3dab57a06790977"
+  apiKey:"AIzaSyBUj7Pm4Jq_OtmmTPFtc8LzRiffgBAwl0g",
+  authDomain:"amusan-os.firebaseapp.com",
+  projectId:"amusan-os",
+  storageBucket:"amusan-os.firebasestorage.app",
+  messagingSenderId:"1070637642033",
+  appId:"1:1070637642033:web:62e28570428e656d72c010"
 };
 const SHEETS_URL = "https://script.google.com/macros/s/AKfycbw05d00h_IKi4ITDlbqtVv7fTRoV_wUgGDUTq9z94y7qRGSFN1Sg1jcGuli2YanuVR8yw/exec";
 const COLLECTION = "family_os";
@@ -712,15 +712,21 @@ function fbHeaders()   { return {'Content-Type':'application/json'}; }
 function checkPassword(){ return sessionStorage.getItem('amusan_auth') === APP_PASS; }
 
 function showPasswordGate(){
-  document.getElementById('app-gate').style.display = 'flex';
-  document.getElementById('aw').style.display = 'none';
-  document.querySelector('.sbar').style.display = 'none';
+  const gate=document.getElementById('app-gate');
+  const aw=document.getElementById('aw');
+  const sbar=document.getElementById('main-sbar');
+  if(gate) gate.style.display='flex';
+  if(aw) aw.style.display='none';
+  if(sbar) sbar.style.display='none';
 }
 
 function hidePasswordGate(){
-  document.getElementById('app-gate').style.display = 'none';
-  document.getElementById('aw').style.display = 'block';
-  document.querySelector('.sbar').style.display = 'flex';
+  const gate=document.getElementById('app-gate');
+  const aw=document.getElementById('aw');
+  const sbar=document.getElementById('main-sbar');
+  if(gate) gate.style.display='none';
+  if(aw) aw.style.display='block';
+  if(sbar) sbar.style.display='flex';
 }
 
 function submitPassword(){
